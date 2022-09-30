@@ -1,0 +1,18 @@
+{
+  "jsc": {
+    "parser": {
+      "syntax": "typescript"
+    },
+    "target": "es2018"
+  },
+  "env": {
+    "targets": {
+      "node": "14"
+    },
+    "coreJs": 3
+  },
+  "module": {
+    "type": "es6"
+  },
+  "sourceMaps": true
+}

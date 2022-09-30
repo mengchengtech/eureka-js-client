@@ -1,0 +1,23 @@
+{
+  "all": true,
+  "extension": [".ts"],
+  "require": [
+    "ts-node/register"
+  ],
+  "sourceMap": true,
+  "instrument": true,
+  "reporter": [
+    "lcov",
+    "text-summary"
+  ],
+  "include": ["src/**/*.ts"],
+  "exclude": [
+    "src/antlr4/impala",
+    "src/antlr4/TokenStreamRewriter.ts",
+    "lib/browser",
+    "coverage",
+    "test",
+    "**/*.d.ts",
+    "**/*.js"
+  ]
+}

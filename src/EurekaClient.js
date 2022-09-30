@@ -1,4 +1,4 @@
-import request from 'request';
+import axios from 'axios';
 import fs from 'fs';
 import yaml from 'js-yaml';
 import { merge, findIndex } from 'lodash';
@@ -12,6 +12,8 @@ import ConfigClusterResolver from './ConfigClusterResolver';
 import DnsClusterResolver from './DnsClusterResolver';
 import Logger from './Logger';
 import defaultConfig from './defaultConfig';
+
+const axiosInst = axios.create({ headers: {}, validateStatus: null });
 
 function noop() {}
 
@@ -210,12 +212,12 @@ export default class Eureka extends EventEmitter {
     }, 10000);
     this.eurekaRequest({
       method: 'POST',
-      uri: this.config.instance.app,
-      json: true,
-      body: { instance: this.config.instance },
+      url: this.config.instance.app,
+      responseType: 'json',
+      data: { instance: this.config.instance },
     }, (error, response, body) => {
       clearTimeout(connectionTimeout);
-      if (!error && response.statusCode === 204) {
+      if (!error && response.status === 204) {
         this.logger.info(
           'registered with eureka: ',
           `${this.config.instance.app}/${this.instanceId}`
@@ -227,7 +229,7 @@ export default class Eureka extends EventEmitter {
         return callback(error);
       }
       return callback(
-        new Error(`eureka registration FAILED: status: ${response.statusCode} body: ${body}`)
+        new Error(`eureka registration FAILED: status: ${response.status} body: ${body}`)
       );
     });
   }
@@ -238,9 +240,9 @@ export default class Eureka extends EventEmitter {
   deregister(callback = noop) {
     this.eurekaRequest({
       method: 'DELETE',
-      uri: `${this.config.instance.app}/${this.instanceId}`,
+      url: `${this.config.instance.app}/${this.instanceId}`,
     }, (error, response, body) => {
-      if (!error && response.statusCode === 200) {
+      if (!error && response.status === 200) {
         this.logger.info(
           `de-registered with eureka: ${this.config.instance.app}/${this.instanceId}`
         );
@@ -251,7 +253,7 @@ export default class Eureka extends EventEmitter {
         return callback(error);
       }
       return callback(
-        new Error(`eureka deregistration FAILED: status: ${response.statusCode} body: ${body}`)
+        new Error(`eureka deregistration FAILED: status: ${response.status} body: ${body}`)
       );
     });
   }
@@ -269,12 +271,12 @@ export default class Eureka extends EventEmitter {
   renew() {
     this.eurekaRequest({
       method: 'PUT',
-      uri: `${this.config.instance.app}/${this.instanceId}`,
+      url: `${this.config.instance.app}/${this.instanceId}`,
     }, (error, response, body) => {
-      if (!error && response.statusCode === 200) {
+      if (!error && response.status === 200) {
         this.logger.debug('eureka heartbeat success');
         this.emit('heartbeat');
-      } else if (!error && response.statusCode === 404) {
+      } else if (!error && response.status === 404) {
         this.logger.warn('eureka heartbeat FAILED, Re-registering app');
         this.register();
       } else {
@@ -283,7 +285,7 @@ export default class Eureka extends EventEmitter {
         }
         this.logger.warn(
           'eureka heartbeat FAILED, will retry.' +
-          `statusCode: ${response ? response.statusCode : 'unknown'}` +
+          `status: ${response ? response.status : 'unknown'}` +
           `body: ${body} ${error | ''} `
         );
       }
@@ -346,12 +348,12 @@ export default class Eureka extends EventEmitter {
   */
   fetchFullRegistry(callback = noop) {
     this.eurekaRequest({
-      uri: '',
+      url: '',
       headers: {
         Accept: 'application/json',
       },
     }, (error, response, body) => {
-      if (!error && response.statusCode === 200) {
+      if (!error && response.status === 200) {
         this.logger.debug('retrieved full registry successfully');
         try {
           this.transformRegistry(JSON.parse(body));
@@ -374,12 +376,12 @@ export default class Eureka extends EventEmitter {
    */
   fetchDelta(callback = noop) {
     this.eurekaRequest({
-      uri: 'delta',
+      url: 'delta',
       headers: {
         Accept: 'application/json',
       },
     }, (error, response, body) => {
-      if (!error && response.statusCode === 200) {
+      if (!error && response.status === 200) {
         this.logger.debug('retrieved delta successfully');
         let applications;
         try {
@@ -570,9 +572,17 @@ export default class Eureka extends EventEmitter {
         this.clusterResolver.resolveEurekaUrl((err, eurekaUrl) => {
           if (err) return done(err);
           const requestOpts = merge({}, opts, {
-            baseUrl: eurekaUrl,
-            gzip: true,
+            baseURL: eurekaUrl,
+            decompress: true,
           });
+          // result is not json
+          // need set 'transitional' not try parse
+          if (requestOpts.responseType !== 'json') {
+            if (!requestOpts.transitional) {
+              requestOpts.transitional = {};
+            }
+            requestOpts.transitional.forcedJSONParsing = false;
+          }
           done(null, requestOpts);
         }, retryAttempt);
       },
@@ -591,9 +601,10 @@ export default class Eureka extends EventEmitter {
       Perform Request
        */
       (requestOpts, done) => {
-        const method = requestOpts.method ? requestOpts.method.toLowerCase() : 'get';
-        request[method](requestOpts, (error, response, body) => {
-          done(error, response, body, requestOpts);
+        axiosInst.request(requestOpts).then(r => {
+          done(null, r, r.data, requestOpts);
+        }).catch(err => {
+          done(err, null, null, requestOpts);
         });
       },
     ],
@@ -605,8 +616,8 @@ export default class Eureka extends EventEmitter {
 
       // Perform retry if request failed and we have attempts left
       const responseInvalid = response
-        && response.statusCode
-        && String(response.statusCode)[0] === '5';
+        && response.status
+        && String(response.status)[0] === '5';
 
       if ((error || responseInvalid) && retryAttempt < this.config.eureka.maxRetries) {
         const nextRetryDelay = this.config.eureka.requestRetryDelay * (retryAttempt + 1);

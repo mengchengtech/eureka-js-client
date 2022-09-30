@@ -32,3 +32,5 @@ lib/
 
 #IDE
 .idea
+.vscode
+yarn.lock
